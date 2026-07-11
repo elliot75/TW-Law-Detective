@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_TLR_BASE_URL: ${NEXT_PUBLIC_TLR_BASE_URL:-https://tlr.dr-lawbot.com}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "${PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
