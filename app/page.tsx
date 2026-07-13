@@ -266,6 +266,7 @@ export default function Home() {
         ? llamaModelId
         : serverModelId;
   const apiKey = apiKeys[providerId];
+  const requiresUserApiKey = providerId !== "llama";
 
   const sensitiveWarnings = useMemo(() => detectSensitiveData(query), [query]);
   const selectedProvider =
@@ -291,6 +292,11 @@ export default function Home() {
     setAiPreferences((current) => ({
       ...current,
       providerId: nextProviderId,
+      llamaModelId:
+        nextProviderId === "llama" &&
+        !nextProvider?.models.some((model) => model.id === current.llamaModelId)
+          ? (nextProvider?.models[0]?.id ?? "")
+          : current.llamaModelId,
       serverModelId:
         nextProviderId === "custom" || nextProviderId === "llama"
           ? current.serverModelId
@@ -368,7 +374,14 @@ export default function Home() {
 
   async function explain(event: FormEvent) {
     event.preventDefault();
-    if (!bundle || !apiKey || !modelId || !consented) return;
+    if (
+      !bundle ||
+      !modelId ||
+      !consented ||
+      (requiresUserApiKey && !apiKey)
+    ) {
+      return;
+    }
 
     setExplaining(true);
     setExplainError("");
@@ -389,7 +402,7 @@ export default function Home() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "X-Provider-API-Key": apiKey,
+            ...(requiresUserApiKey ? { "X-Provider-API-Key": apiKey } : {}),
           },
           body: JSON.stringify({ providerId, modelId, bundle }),
         });
@@ -827,12 +840,11 @@ export default function Home() {
                 </>
               ) : providerId === "llama" ? (
                 <>
-                  <label className="field-label" htmlFor="llama-model">
-                    模型 ID
+                  <label className="field-label" htmlFor="llama-model-select">
+                    模型
                   </label>
-                  <input
-                    id="llama-model"
-                    type="text"
+                  <select
+                    id="llama-model-select"
                     value={llamaModelId}
                     onChange={(event) =>
                       setAiPreferences((current) => ({
@@ -840,9 +852,17 @@ export default function Home() {
                         llamaModelId: event.target.value,
                       }))
                     }
-                    placeholder="llama.cpp model alias"
                     required
-                  />
+                  >
+                    <option value="" disabled>
+                      選擇模型
+                    </option>
+                    {selectedProvider.models.map((model) => (
+                      <option value={model.id} key={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
                 </>
               ) : (
                 <>
@@ -868,26 +888,34 @@ export default function Home() {
                 </>
               )}
 
-              <label className="field-label" htmlFor="provider-key">
-                API 金鑰
-              </label>
-              <input
-                id="provider-key"
-                type="password"
-                autoComplete="off"
-                value={apiKey}
-                onChange={(event) =>
-                  setApiKeys((current) => ({
-                    ...current,
-                    [providerId]: event.target.value,
-                  }))
-                }
-                placeholder="本分頁內沿用，不寫入本站儲存空間"
-                required
-              />
-              <p className="credential-note">
-                端點、模型與供應商會保存在此瀏覽器；API 金鑰只保留在目前分頁，關閉分頁後清除。
-              </p>
+              {requiresUserApiKey ? (
+                <>
+                  <label className="field-label" htmlFor="provider-key">
+                    API 金鑰
+                  </label>
+                  <input
+                    id="provider-key"
+                    type="password"
+                    autoComplete="off"
+                    value={apiKey}
+                    onChange={(event) =>
+                      setApiKeys((current) => ({
+                        ...current,
+                        [providerId]: event.target.value,
+                      }))
+                    }
+                    placeholder="本分頁內沿用，不寫入本站儲存空間"
+                    required
+                  />
+                  <p className="credential-note">
+                    端點、模型與供應商會保存在此瀏覽器；API 金鑰只保留在目前分頁，關閉分頁後清除。
+                  </p>
+                </>
+              ) : (
+                <p className="credential-note">
+                  llama.cpp API 金鑰由部署者設定，並且不會傳送至瀏覽器。
+                </p>
+              )}
 
               <label className="consent-row">
                 <input
@@ -912,7 +940,7 @@ export default function Home() {
                 disabled={
                   explaining ||
                   !consented ||
-                  !apiKey ||
+                  (requiresUserApiKey && !apiKey) ||
                   !modelId ||
                   (providerId === "custom" && !customBaseUrl)
                 }

@@ -8,6 +8,8 @@ services:
     environment:
       NODE_ENV: production
       LLAMA_BASE_URL: ${LLAMA_BASE_URL:-}
+      LLAMA_API_KEY: ${LLAMA_API_KEY:-}
+      LLAMA_MODEL_IDS: ${LLAMA_MODEL_IDS:-}
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:

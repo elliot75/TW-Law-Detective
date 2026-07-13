@@ -2,14 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/explain/route";
 import { validBundle, validExplanation } from "./fixtures";
 
-const originalLlamaBaseUrl = process.env.LLAMA_BASE_URL;
+const llamaEnvironmentKeys = [
+  "LLAMA_BASE_URL",
+  "LLAMA_API_KEY",
+  "LLAMA_MODEL_IDS",
+] as const;
+const originalLlamaEnvironment = Object.fromEntries(
+  llamaEnvironmentKeys.map((key) => [key, process.env[key]]),
+);
 
-function request(body: unknown, apiKey = "secret-test-key") {
+function request(body: unknown, apiKey: string | null = "secret-test-key") {
   return new Request("http://localhost/api/explain", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Provider-API-Key": apiKey,
+      ...(apiKey ? { "X-Provider-API-Key": apiKey } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -40,14 +47,17 @@ function chatCompletionResponse(value: unknown) {
 }
 
 beforeEach(() => {
-  delete process.env.LLAMA_BASE_URL;
+  for (const key of llamaEnvironmentKeys) delete process.env[key];
 });
 
 afterEach(() => {
-  if (originalLlamaBaseUrl === undefined) {
-    delete process.env.LLAMA_BASE_URL;
-  } else {
-    process.env.LLAMA_BASE_URL = originalLlamaBaseUrl;
+  for (const key of llamaEnvironmentKeys) {
+    const value = originalLlamaEnvironment[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -111,17 +121,22 @@ describe("POST /api/explain", () => {
 
   it("uses only the deployment-configured llama.cpp endpoint", async () => {
     process.env.LLAMA_BASE_URL = "http://100.111.111.99:11441/v1";
+    process.env.LLAMA_API_KEY = "configured-llama-key";
+    process.env.LLAMA_MODEL_IDS = "qwen-local";
     const providerFetch = vi
       .fn()
       .mockResolvedValue(chatCompletionResponse(validExplanation));
     vi.stubGlobal("fetch", providerFetch);
 
     const response = await POST(
-      request({
-        providerId: "llama",
-        modelId: "qwen-local",
-        bundle: validBundle,
-      }),
+      request(
+        {
+          providerId: "llama",
+          modelId: "qwen-local",
+          bundle: validBundle,
+        },
+        null,
+      ),
     );
 
     expect(response.status).toBe(200);
@@ -138,9 +153,9 @@ describe("POST /api/explain", () => {
       },
     });
     expect(String(init.body)).not.toContain("100.111.111.99");
-    expect(String(init.body)).not.toContain("secret-test-key");
+    expect(String(init.body)).not.toContain("configured-llama-key");
     expect((init.headers as Record<string, string>).Authorization).toBe(
-      "Bearer secret-test-key",
+      "Bearer configured-llama-key",
     );
   });
 
@@ -163,6 +178,8 @@ describe("POST /api/explain", () => {
 
   it("rejects a browser-supplied llama.cpp endpoint", async () => {
     process.env.LLAMA_BASE_URL = "http://100.111.111.99:11441/v1";
+    process.env.LLAMA_API_KEY = "configured-llama-key";
+    process.env.LLAMA_MODEL_IDS = "qwen-local";
     const providerFetch = vi.fn();
     vi.stubGlobal("fetch", providerFetch);
 
@@ -177,6 +194,29 @@ describe("POST /api/explain", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a llama.cpp model outside the configured list", async () => {
+    process.env.LLAMA_BASE_URL = "http://100.111.111.99:11441/v1";
+    process.env.LLAMA_API_KEY = "configured-llama-key";
+    process.env.LLAMA_MODEL_IDS = "qwen-local";
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await POST(
+      request(
+        {
+          providerId: "llama",
+          modelId: "unconfigured-model",
+          bundle: validBundle,
+        },
+        null,
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "unsupported_model" });
     expect(providerFetch).not.toHaveBeenCalled();
   });
 

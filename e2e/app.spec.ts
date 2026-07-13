@@ -126,7 +126,10 @@ test("uses a deployment-configured llama.cpp provider through the app server", a
 }) => {
   const availableProviders = [
     ...PROVIDERS.slice(0, 2),
-    LLAMA_PROVIDER,
+    {
+      ...LLAMA_PROVIDER,
+      models: [{ id: "qwen-local", label: "qwen-local" }],
+    },
     ...PROVIDERS.slice(2),
   ];
   let capturedBody = "";
@@ -153,8 +156,8 @@ test("uses a deployment-configured llama.cpp provider through the app server", a
   await page.getByRole("button", { name: "搜尋相關判決" }).click();
   await page.getByRole("button", { name: "AI 白話整理" }).click();
   await page.getByRole("radio", { name: /llama.cpp（固定端點）/ }).check();
-  await page.getByLabel("模型 ID").fill("qwen-local");
-  await page.getByLabel("API 金鑰").fill("llama-test-key");
+  await page.locator("#llama-model-select").selectOption("qwen-local");
+  await expect(page.getByLabel("API 金鑰")).toHaveCount(0);
   await page.getByText(/我了解問題與判決節錄/).click();
   await page.getByRole("button", { name: "同意並開始整理" }).click();
 
@@ -164,7 +167,7 @@ test("uses a deployment-configured llama.cpp provider through the app server", a
     modelId: "qwen-local",
   });
   expect(capturedBody).not.toContain("baseUrl");
-  expect(capturedKey).toBe("llama-test-key");
+  expect(capturedKey).toBe("");
 });
 
 test("clears the legal query after reload and meets basic accessibility checks", async ({

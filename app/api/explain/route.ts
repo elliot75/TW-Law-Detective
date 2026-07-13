@@ -10,7 +10,7 @@ import {
   callGemini,
   callLlama,
   callOpenAI,
-  getLlamaChatEndpoint,
+  getLlamaConfiguration,
   ProviderRequestError,
 } from "@/lib/server-explain";
 
@@ -40,11 +40,6 @@ export async function POST(request: Request) {
     return errorResponse("payload_too_large", 413);
   }
 
-  const apiKey = request.headers.get("x-provider-api-key")?.trim();
-  if (!apiKey || apiKey.length > 512) {
-    return errorResponse("missing_api_key", 401);
-  }
-
   let rawBody: string;
   try {
     rawBody = await request.text();
@@ -67,9 +62,19 @@ export async function POST(request: Request) {
   if (!parsed.success) return errorResponse("invalid_request", 400);
 
   const { providerId, modelId, bundle } = parsed.data;
-  const llamaEndpoint = getLlamaChatEndpoint();
-  if (!getServerProvider(providerId, modelId, Boolean(llamaEndpoint))) {
+  const llamaConfiguration = getLlamaConfiguration();
+  const llamaModelAllowed = Boolean(
+    llamaConfiguration?.models.some((model) => model.id === modelId),
+  );
+  if (!getServerProvider(providerId, modelId, llamaModelAllowed)) {
     return errorResponse("unsupported_model", 400);
+  }
+  const apiKey =
+    providerId === "llama"
+      ? llamaConfiguration?.apiKey
+      : request.headers.get("x-provider-api-key")?.trim();
+  if (!apiKey || apiKey.length > 512) {
+    return errorResponse("missing_api_key", 401);
   }
   if (bundle.allowed_citations.length === 0) {
     return errorResponse("no_citable_judgments", 400);
@@ -97,9 +102,9 @@ export async function POST(request: Request) {
           controller.signal,
         );
       } else {
-        if (!llamaEndpoint) return errorResponse("unsupported_model", 400);
+        if (!llamaConfiguration) return errorResponse("unsupported_model", 400);
         candidate = await callLlama(
-          llamaEndpoint,
+          llamaConfiguration.endpoint,
           apiKey,
           modelId,
           bundle,

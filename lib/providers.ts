@@ -9,7 +9,7 @@ export type ProviderDefinition = {
 export const LLAMA_PROVIDER: ProviderDefinition = {
   id: "llama",
   label: "llama.cpp（固定端點）",
-  description: "由本站伺服器代送至部署者設定的 llama.cpp 端點。",
+  description: "由本站伺服器使用部署者設定的模型與金鑰呼叫 llama.cpp。",
   transport: "server",
   models: [],
 };

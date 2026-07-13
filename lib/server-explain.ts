@@ -59,6 +59,12 @@ function extractChatCompletionText(data: unknown): string {
     : (content ?? "");
 }
 
+export type LlamaConfiguration = {
+  endpoint: string;
+  apiKey: string;
+  models: Array<{ id: string; label: string }>;
+};
+
 export function getLlamaChatEndpoint(): string | null {
   const baseUrl = process.env.LLAMA_BASE_URL?.trim();
   if (!baseUrl) return null;
@@ -75,6 +81,24 @@ export function getLlamaChatEndpoint(): string | null {
   } catch {
     return null;
   }
+}
+
+function getLlamaModels(): Array<{ id: string; label: string }> {
+  const modelIds = (process.env.LLAMA_MODEL_IDS ?? "")
+    .split(",")
+    .map((modelId) => modelId.trim())
+    .filter((modelId) => modelId.length > 0 && modelId.length <= 120);
+  return [...new Set(modelIds)].slice(0, 20).map((id) => ({ id, label: id }));
+}
+
+export function getLlamaConfiguration(): LlamaConfiguration | null {
+  const endpoint = getLlamaChatEndpoint();
+  const apiKey = process.env.LLAMA_API_KEY?.trim();
+  const models = getLlamaModels();
+  if (!endpoint || !apiKey || apiKey.length > 512 || models.length === 0) {
+    return null;
+  }
+  return { endpoint, apiKey, models };
 }
 
 export async function callOpenAI(
