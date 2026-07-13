@@ -27,6 +27,7 @@ const EXAMPLES = [
 type AiPreferences = {
   providerId: ProviderDefinition["id"];
   serverModelId: string;
+  llamaModelId: string;
   customModelId: string;
   customBaseUrl: string;
 };
@@ -34,6 +35,7 @@ type AiPreferences = {
 const DEFAULT_AI_PREFERENCES: AiPreferences = {
   providerId: "openai",
   serverModelId: "gpt-5.6-terra",
+  llamaModelId: "",
   customModelId: "",
   customBaseUrl: "",
 };
@@ -45,7 +47,7 @@ function loadAiPreferences(): AiPreferences {
     const stored = window.localStorage.getItem(AI_PREFERENCES_KEY);
     if (!stored) return DEFAULT_AI_PREFERENCES;
     const value = JSON.parse(stored) as Partial<AiPreferences>;
-    const providerId = ["openai", "gemini", "custom"].includes(
+    const providerId = ["openai", "gemini", "llama", "custom"].includes(
       value.providerId ?? "",
     )
       ? value.providerId as ProviderDefinition["id"]
@@ -56,6 +58,8 @@ function loadAiPreferences(): AiPreferences {
         typeof value.serverModelId === "string"
           ? value.serverModelId
           : DEFAULT_AI_PREFERENCES.serverModelId,
+      llamaModelId:
+        typeof value.llamaModelId === "string" ? value.llamaModelId : "",
       customModelId:
         typeof value.customModelId === "string" ? value.customModelId : "",
       customBaseUrl:
@@ -239,6 +243,7 @@ export default function Home() {
   const [apiKeys, setApiKeys] = useState<Record<ProviderDefinition["id"], string>>({
     openai: "",
     gemini: "",
+    llama: "",
     custom: "",
   });
   const [consented, setConsented] = useState(false);
@@ -247,9 +252,19 @@ export default function Home() {
   const [explanation, setExplanation] = useState<LegalExplanation | null>(null);
   const [notice, setNotice] = useState("");
   const aiResultRef = useRef<HTMLElement>(null);
-  const { providerId, serverModelId, customModelId, customBaseUrl } =
-    aiPreferences;
-  const modelId = providerId === "custom" ? customModelId : serverModelId;
+  const {
+    providerId,
+    serverModelId,
+    llamaModelId,
+    customModelId,
+    customBaseUrl,
+  } = aiPreferences;
+  const modelId =
+    providerId === "custom"
+      ? customModelId
+      : providerId === "llama"
+        ? llamaModelId
+        : serverModelId;
   const apiKey = apiKeys[providerId];
 
   const sensitiveWarnings = useMemo(() => detectSensitiveData(query), [query]);
@@ -259,7 +274,15 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/providers")
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((data) => setProviders(data as ProviderDefinition[]))
+      .then((data) => {
+        const nextProviders = data as ProviderDefinition[];
+        setProviders(nextProviders);
+        setAiPreferences((current) =>
+          nextProviders.some((provider) => provider.id === current.providerId)
+            ? current
+            : { ...current, providerId: nextProviders[0]?.id ?? "openai" },
+        );
+      })
       .catch(() => setProviders(PROVIDERS));
   }, []);
 
@@ -269,7 +292,7 @@ export default function Home() {
       ...current,
       providerId: nextProviderId,
       serverModelId:
-        nextProviderId === "custom"
+        nextProviderId === "custom" || nextProviderId === "llama"
           ? current.serverModelId
           : (nextProvider?.models[0]?.id ?? ""),
     }));
@@ -798,6 +821,24 @@ export default function Home() {
                       }))
                     }
                     placeholder="provider-model-name"
+                    required
+                  />
+                </>
+              ) : providerId === "llama" ? (
+                <>
+                  <label className="field-label" htmlFor="llama-model">
+                    模型 ID
+                  </label>
+                  <input
+                    id="llama-model"
+                    value={llamaModelId}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        llamaModelId: event.target.value,
+                      }))
+                    }
+                    placeholder="llama.cpp model alias"
                     required
                   />
                 </>

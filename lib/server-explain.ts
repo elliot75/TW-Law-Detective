@@ -46,6 +46,37 @@ function extractOpenAIText(data: unknown): string {
   return "";
 }
 
+function extractChatCompletionText(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const response = data as {
+    choices?: Array<{
+      message?: { content?: string | Array<{ text?: string }> };
+    }>;
+  };
+  const content = response.choices?.[0]?.message?.content;
+  return Array.isArray(content)
+    ? content.map((item) => item.text ?? "").join("")
+    : (content ?? "");
+}
+
+export function getLlamaChatEndpoint(): string | null {
+  const baseUrl = process.env.LLAMA_BASE_URL?.trim();
+  if (!baseUrl) return null;
+
+  try {
+    const url = new URL(baseUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+    const path = url.pathname.replace(/\/$/, "");
+    url.pathname = path.endsWith("/chat/completions")
+      ? path
+      : `${path}/chat/completions`;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export async function callOpenAI(
   apiKey: string,
   modelId: string,
@@ -122,6 +153,50 @@ export async function callGemini(
   const text = data.candidates?.[0]?.content?.parts
     ?.map((part) => part.text ?? "")
     .join("");
+  if (!text) throw new ProviderRequestError("invalid_provider_response", 502);
+  return parseModelJson(text);
+}
+
+export async function callLlama(
+  endpoint: string,
+  apiKey: string,
+  modelId: string,
+  bundle: TLRBundle,
+  correction: boolean,
+  signal: AbortSignal,
+): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: "system", content: MODEL_SYSTEM_PROMPT },
+          { role: "user", content: buildModelPrompt(bundle, correction) },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "legal_explanation",
+            strict: true,
+            schema: legalExplanationJsonSchema,
+          },
+        },
+      }),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw new ProviderRequestError("provider_unavailable", 502);
+  }
+
+  if (!response.ok) throw mapProviderStatus(response.status);
+  const text = extractChatCompletionText(await response.json());
   if (!text) throw new ProviderRequestError("invalid_provider_response", 502);
   return parseModelJson(text);
 }

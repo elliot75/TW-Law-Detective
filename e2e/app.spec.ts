@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { LLAMA_PROVIDER, PROVIDERS } from "../lib/providers";
 import { validBundle, validExplanation } from "../tests/fixtures";
 
 test.beforeEach(async ({ page }) => {
@@ -118,6 +119,52 @@ test("reuses custom HTTP endpoint settings without persisting the API key", asyn
   );
   await expect(page.getByLabel("模型 ID")).toHaveValue("local-model");
   await expect(page.getByLabel("API 金鑰")).toHaveValue("");
+});
+
+test("uses a deployment-configured llama.cpp provider through the app server", async ({
+  page,
+}) => {
+  const availableProviders = [
+    ...PROVIDERS.slice(0, 2),
+    LLAMA_PROVIDER,
+    ...PROVIDERS.slice(2),
+  ];
+  let capturedBody = "";
+  let capturedKey = "";
+  await page.route("**/api/providers", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(availableProviders),
+    });
+  });
+  await page.route("**/api/explain", async (route) => {
+    capturedBody = route.request().postData() ?? "";
+    capturedKey = route.request().headers()["x-provider-api-key"] ?? "";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(validExplanation),
+    });
+  });
+
+  await page.goto("/");
+  await page.getByLabel("描述你想了解的情況").fill("房東不退押金");
+  await page.getByRole("button", { name: "搜尋相關判決" }).click();
+  await page.getByRole("button", { name: "AI 白話整理" }).click();
+  await page.getByRole("radio", { name: /llama.cpp（固定端點）/ }).check();
+  await page.getByLabel("模型 ID").fill("qwen-local");
+  await page.getByLabel("API 金鑰").fill("llama-test-key");
+  await page.getByText(/我了解問題與判決節錄/).click();
+  await page.getByRole("button", { name: "同意並開始整理" }).click();
+
+  await expect(page.getByRole("heading", { name: "AI 白話整理" })).toBeVisible();
+  expect(JSON.parse(capturedBody)).toMatchObject({
+    providerId: "llama",
+    modelId: "qwen-local",
+  });
+  expect(capturedBody).not.toContain("baseUrl");
+  expect(capturedKey).toBe("llama-test-key");
 });
 
 test("clears the legal query after reload and meets basic accessibility checks", async ({

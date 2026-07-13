@@ -17,9 +17,12 @@ npm run dev
 
 ```dotenv
 NEXT_PUBLIC_TLR_BASE_URL=https://tlr.dr-lawbot.com
+LLAMA_BASE_URL=http://100.111.111.99:11441/v1
 ```
 
-專案不需要站方模型金鑰。OpenAI 與 Gemini 金鑰只在單次 `/api/explain` 請求中轉，自訂端點則由瀏覽器直接連線；任何金鑰都不會寫入 cookie、Web Storage 或資料庫。
+`LLAMA_BASE_URL` 是選配的伺服器端固定 llama.cpp 端點；設定後 UI 才會顯示該供應商。瀏覽器不會收到或提交這個 URL，因此不需要 llama.cpp 開放 CORS，也不接受任意 URL 的伺服器代理。專案不需要站方模型金鑰。OpenAI、Gemini 與 llama.cpp 金鑰只在單次 `/api/explain` 請求中轉，自訂相容端點仍由瀏覽器直接連線；任何金鑰都不會寫入 cookie、Web Storage 或資料庫。
+
+變更 `LLAMA_BASE_URL` 後必須重新啟動開發或 production server。執行 App 的主機也必須能直接連線到該位址。
 
 ## 驗證
 

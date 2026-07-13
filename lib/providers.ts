@@ -1,9 +1,17 @@
 export type ProviderDefinition = {
-  id: "openai" | "gemini" | "custom";
+  id: "openai" | "gemini" | "llama" | "custom";
   label: string;
   description: string;
   transport: "server" | "browser";
   models: Array<{ id: string; label: string }>;
+};
+
+export const LLAMA_PROVIDER: ProviderDefinition = {
+  id: "llama",
+  label: "llama.cpp（固定端點）",
+  description: "由本站伺服器代送至部署者設定的 llama.cpp 端點。",
+  transport: "server",
+  models: [],
 };
 
 export const PROVIDERS: ProviderDefinition[] = [
@@ -40,7 +48,11 @@ export const PROVIDERS: ProviderDefinition[] = [
 export function getServerProvider(
   providerId: string,
   modelId: string,
+  llamaConfigured = false,
 ): ProviderDefinition | undefined {
+  if (providerId === "llama" && llamaConfigured && modelId.length > 0) {
+    return LLAMA_PROVIDER;
+  }
   return PROVIDERS.find(
     (provider) =>
       provider.id === providerId &&

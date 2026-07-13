@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      LLAMA_BASE_URL: ${LLAMA_BASE_URL:-}
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:

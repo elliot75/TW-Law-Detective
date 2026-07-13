@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/explain/route";
 import { validBundle, validExplanation } from "./fixtures";
+
+const originalLlamaBaseUrl = process.env.LLAMA_BASE_URL;
 
 function request(body: unknown, apiKey = "secret-test-key") {
   return new Request("http://localhost/api/explain", {
@@ -28,7 +30,25 @@ function openAIResponse(value: unknown) {
   );
 }
 
+function chatCompletionResponse(value: unknown) {
+  return new Response(
+    JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(value) } }],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+beforeEach(() => {
+  delete process.env.LLAMA_BASE_URL;
+});
+
 afterEach(() => {
+  if (originalLlamaBaseUrl === undefined) {
+    delete process.env.LLAMA_BASE_URL;
+  } else {
+    process.env.LLAMA_BASE_URL = originalLlamaBaseUrl;
+  }
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -87,6 +107,77 @@ describe("POST /api/explain", () => {
     );
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "invalid_api_key" });
+  });
+
+  it("uses only the deployment-configured llama.cpp endpoint", async () => {
+    process.env.LLAMA_BASE_URL = "http://100.111.111.99:11441/v1";
+    const providerFetch = vi
+      .fn()
+      .mockResolvedValue(chatCompletionResponse(validExplanation));
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await POST(
+      request({
+        providerId: "llama",
+        modelId: "qwen-local",
+        bundle: validBundle,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(validExplanation);
+    expect(providerFetch.mock.calls[0][0]).toBe(
+      "http://100.111.111.99:11441/v1/chat/completions",
+    );
+    const init = providerFetch.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: "qwen-local",
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "legal_explanation", strict: true },
+      },
+    });
+    expect(String(init.body)).not.toContain("100.111.111.99");
+    expect(String(init.body)).not.toContain("secret-test-key");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer secret-test-key",
+    );
+  });
+
+  it("rejects llama.cpp when no fixed endpoint is configured", async () => {
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await POST(
+      request({
+        providerId: "llama",
+        modelId: "qwen-local",
+        bundle: validBundle,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "unsupported_model" });
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a browser-supplied llama.cpp endpoint", async () => {
+    process.env.LLAMA_BASE_URL = "http://100.111.111.99:11441/v1";
+    const providerFetch = vi.fn();
+    vi.stubGlobal("fetch", providerFetch);
+
+    const response = await POST(
+      request({
+        providerId: "llama",
+        modelId: "qwen-local",
+        baseUrl: "http://attacker.invalid/v1",
+        bundle: validBundle,
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(providerFetch).not.toHaveBeenCalled();
   });
 
   it("rejects oversized requests before reading provider data", async () => {

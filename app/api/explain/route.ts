@@ -8,7 +8,9 @@ import {
 import { getServerProvider } from "@/lib/providers";
 import {
   callGemini,
+  callLlama,
   callOpenAI,
+  getLlamaChatEndpoint,
   ProviderRequestError,
 } from "@/lib/server-explain";
 
@@ -19,7 +21,7 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const ExplainRequestSchema = z
   .object({
-    providerId: z.enum(["openai", "gemini"]),
+    providerId: z.enum(["openai", "gemini", "llama"]),
     modelId: z.string().min(1).max(120),
     bundle: TLRBundleSchema,
   })
@@ -65,7 +67,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return errorResponse("invalid_request", 400);
 
   const { providerId, modelId, bundle } = parsed.data;
-  if (!getServerProvider(providerId, modelId)) {
+  const llamaEndpoint = getLlamaChatEndpoint();
+  if (!getServerProvider(providerId, modelId, Boolean(llamaEndpoint))) {
     return errorResponse("unsupported_model", 400);
   }
   if (bundle.allowed_citations.length === 0) {
@@ -76,22 +79,34 @@ export async function POST(request: Request) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
     try {
-      const candidate =
-        providerId === "openai"
-          ? await callOpenAI(
-              apiKey,
-              modelId,
-              bundle,
-              attempt === 1,
-              controller.signal,
-            )
-          : await callGemini(
-              apiKey,
-              modelId,
-              bundle,
-              attempt === 1,
-              controller.signal,
-            );
+      let candidate: unknown;
+      if (providerId === "openai") {
+        candidate = await callOpenAI(
+          apiKey,
+          modelId,
+          bundle,
+          attempt === 1,
+          controller.signal,
+        );
+      } else if (providerId === "gemini") {
+        candidate = await callGemini(
+          apiKey,
+          modelId,
+          bundle,
+          attempt === 1,
+          controller.signal,
+        );
+      } else {
+        if (!llamaEndpoint) return errorResponse("unsupported_model", 400);
+        candidate = await callLlama(
+          llamaEndpoint,
+          apiKey,
+          modelId,
+          bundle,
+          attempt === 1,
+          controller.signal,
+        );
+      }
       const explanation = validateExplanation(candidate, bundle);
       return NextResponse.json(explanation, {
         headers: { "Cache-Control": "no-store" },
