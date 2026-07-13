@@ -82,7 +82,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_api_key: "API 金鑰無效或沒有使用此模型的權限。",
   provider_rate_limit: "模型供應商目前流量過高，請稍後再試。",
   provider_unavailable: "模型供應商暫時無法使用。",
-  provider_timeout: "模型在 60 秒內沒有完成，請稍後再試。",
+  provider_timeout: "模型在 180 秒內沒有完成，請稍後再試。",
   unverified_model_output: "AI 回覆未通過引用驗證，因此沒有顯示。",
   unsupported_model: "這個模型目前未啟用。",
   payload_too_large: "判決資料超過可處理大小。",
@@ -143,7 +143,7 @@ async function callCustomProvider(options: {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 60_000);
+    const timeout = window.setTimeout(() => controller.abort(), 180_000);
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -813,6 +813,7 @@ export default function Home() {
                   </label>
                   <input
                     id="custom-model"
+                    type="text"
                     value={customModelId}
                     onChange={(event) =>
                       setAiPreferences((current) => ({
@@ -831,6 +832,7 @@ export default function Home() {
                   </label>
                   <input
                     id="llama-model"
+                    type="text"
                     value={llamaModelId}
                     onChange={(event) =>
                       setAiPreferences((current) => ({

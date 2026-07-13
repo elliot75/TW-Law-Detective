@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const timeout = setTimeout(() => controller.abort(), 180_000);
     try {
       let candidate: unknown;
       if (providerId === "openai") {
