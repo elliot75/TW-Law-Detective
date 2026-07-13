@@ -27,6 +27,26 @@ describe("TLR Bundle contract", () => {
     expect(hasOverturnedUpperCourt(validBundle.judgments[1])).toBe(true);
     expect(hasOverturnedUpperCourt(validBundle.judgments[0])).toBe(false);
   });
+
+  it("accepts a null main_flag in a case-history record", () => {
+    const bundle = {
+      ...validBundle,
+      judgments: validBundle.judgments.map((judgment, index) =>
+        index === 1
+          ? {
+              ...judgment,
+              case_history: {
+                upper: [{ citation_text: "上級審測試判決", main_flag: null }],
+              },
+            }
+          : judgment,
+      ),
+    };
+
+    const parsed = TLRBundleSchema.parse(bundle);
+    expect(parsed.judgments[1].case_history?.upper?.[0].main_flag).toBeNull();
+    expect(hasOverturnedUpperCourt(parsed.judgments[1])).toBe(false);
+  });
 });
 
 describe("AI explanation validation", () => {

@@ -17,11 +17,62 @@ import { PROVIDERS, type ProviderDefinition } from "@/lib/providers";
 
 const TLR_BASE_URL =
   process.env.NEXT_PUBLIC_TLR_BASE_URL ?? "https://tlr.dr-lawbot.com";
+const AI_PREFERENCES_KEY = "tw-law-detective.ai-preferences.v1";
 const EXAMPLES = [
   "房東說牆面有刮痕，不願退還租屋押金",
   "公司沒有給加班費，我應該準備哪些證據？",
   "車禍對方主要肇責，我可以主張哪些損害？",
 ];
+
+type AiPreferences = {
+  providerId: ProviderDefinition["id"];
+  serverModelId: string;
+  customModelId: string;
+  customBaseUrl: string;
+};
+
+const DEFAULT_AI_PREFERENCES: AiPreferences = {
+  providerId: "openai",
+  serverModelId: "gpt-5.6-terra",
+  customModelId: "",
+  customBaseUrl: "",
+};
+
+function loadAiPreferences(): AiPreferences {
+  if (typeof window === "undefined") return DEFAULT_AI_PREFERENCES;
+
+  try {
+    const stored = window.localStorage.getItem(AI_PREFERENCES_KEY);
+    if (!stored) return DEFAULT_AI_PREFERENCES;
+    const value = JSON.parse(stored) as Partial<AiPreferences>;
+    const providerId = ["openai", "gemini", "custom"].includes(
+      value.providerId ?? "",
+    )
+      ? value.providerId as ProviderDefinition["id"]
+      : DEFAULT_AI_PREFERENCES.providerId;
+    return {
+      providerId,
+      serverModelId:
+        typeof value.serverModelId === "string"
+          ? value.serverModelId
+          : DEFAULT_AI_PREFERENCES.serverModelId,
+      customModelId:
+        typeof value.customModelId === "string" ? value.customModelId : "",
+      customBaseUrl:
+        typeof value.customBaseUrl === "string" ? value.customBaseUrl : "",
+    };
+  } catch {
+    return DEFAULT_AI_PREFERENCES;
+  }
+}
+
+function saveAiPreferences(preferences: AiPreferences) {
+  try {
+    window.localStorage.setItem(AI_PREFERENCES_KEY, JSON.stringify(preferences));
+  } catch {
+    // Private browsing or storage policy may disable localStorage.
+  }
+}
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_api_key: "API 金鑰無效或沒有使用此模型的權限。",
@@ -65,9 +116,8 @@ function providerError(status: number): string {
 
 function customChatUrl(baseUrl: string): string {
   const url = new URL(baseUrl);
-  const isLocal = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(isLocal && url.protocol === "http:")) {
-    throw new Error("自訂端點必須使用 HTTPS；本機 localhost 可使用 HTTP。 ");
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("自訂端點必須使用 HTTP 或 HTTPS。 ");
   }
   if (url.username || url.password || url.search || url.hash) {
     throw new Error("Base URL 不可包含帳密、查詢參數或片段。 ");
@@ -185,16 +235,22 @@ export default function Home() {
   const [searchError, setSearchError] = useState("");
   const [providers, setProviders] = useState<ProviderDefinition[]>(PROVIDERS);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [providerId, setProviderId] = useState<ProviderDefinition["id"]>("openai");
-  const [modelId, setModelId] = useState("gpt-5.6-terra");
-  const [apiKey, setApiKey] = useState("");
-  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [aiPreferences, setAiPreferences] = useState(loadAiPreferences);
+  const [apiKeys, setApiKeys] = useState<Record<ProviderDefinition["id"], string>>({
+    openai: "",
+    gemini: "",
+    custom: "",
+  });
   const [consented, setConsented] = useState(false);
   const [explaining, setExplaining] = useState(false);
   const [explainError, setExplainError] = useState("");
   const [explanation, setExplanation] = useState<LegalExplanation | null>(null);
   const [notice, setNotice] = useState("");
   const aiResultRef = useRef<HTMLElement>(null);
+  const { providerId, serverModelId, customModelId, customBaseUrl } =
+    aiPreferences;
+  const modelId = providerId === "custom" ? customModelId : serverModelId;
+  const apiKey = apiKeys[providerId];
 
   const sensitiveWarnings = useMemo(() => detectSensitiveData(query), [query]);
   const selectedProvider =
@@ -208,11 +264,15 @@ export default function Home() {
   }, []);
 
   function chooseProvider(nextProviderId: ProviderDefinition["id"]) {
-    setProviderId(nextProviderId);
     const nextProvider = providers.find((item) => item.id === nextProviderId);
-    setModelId(
-      nextProviderId === "custom" ? "" : (nextProvider?.models[0]?.id ?? ""),
-    );
+    setAiPreferences((current) => ({
+      ...current,
+      providerId: nextProviderId,
+      serverModelId:
+        nextProviderId === "custom"
+          ? current.serverModelId
+          : (nextProvider?.models[0]?.id ?? ""),
+    }));
   }
 
   async function search(event: FormEvent) {
@@ -279,7 +339,6 @@ export default function Home() {
   function closeDialog() {
     if (explaining) return;
     setDialogOpen(false);
-    setApiKey("");
     setConsented(false);
     setExplainError("");
   }
@@ -292,6 +351,8 @@ export default function Home() {
     setExplainError("");
     setExplanation(null);
     try {
+      if (providerId === "custom") customChatUrl(customBaseUrl);
+      saveAiPreferences(aiPreferences);
       let result: LegalExplanation;
       if (providerId === "custom") {
         result = await callCustomProvider({
@@ -330,7 +391,6 @@ export default function Home() {
           : ERROR_MESSAGES.unverified_model_output,
       );
     } finally {
-      setApiKey("");
       setExplaining(false);
     }
   }
@@ -710,18 +770,33 @@ export default function Home() {
                   <input
                     id="custom-base-url"
                     type="url"
-                    placeholder="https://example.com/v1"
+                    placeholder="http://localhost:11434/v1"
                     value={customBaseUrl}
-                    onChange={(event) => setCustomBaseUrl(event.target.value)}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        customBaseUrl: event.target.value,
+                      }))
+                    }
                     required
                   />
+                  {customBaseUrl.trim().startsWith("http:") && (
+                    <div className="privacy-warning custom-http-warning" role="status">
+                      HTTP 會以未加密方式傳送 API 金鑰，請只用於可信任的本機或內網端點。
+                    </div>
+                  )}
                   <label className="field-label" htmlFor="custom-model">
                     模型 ID
                   </label>
                   <input
                     id="custom-model"
-                    value={modelId}
-                    onChange={(event) => setModelId(event.target.value)}
+                    value={customModelId}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        customModelId: event.target.value,
+                      }))
+                    }
                     placeholder="provider-model-name"
                     required
                   />
@@ -733,8 +808,13 @@ export default function Home() {
                   </label>
                   <select
                     id="model-select"
-                    value={modelId}
-                    onChange={(event) => setModelId(event.target.value)}
+                    value={serverModelId}
+                    onChange={(event) =>
+                      setAiPreferences((current) => ({
+                        ...current,
+                        serverModelId: event.target.value,
+                      }))
+                    }
                   >
                     {selectedProvider.models.map((model) => (
                       <option value={model.id} key={model.id}>
@@ -753,10 +833,18 @@ export default function Home() {
                 type="password"
                 autoComplete="off"
                 value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="只用於這一次請求"
+                onChange={(event) =>
+                  setApiKeys((current) => ({
+                    ...current,
+                    [providerId]: event.target.value,
+                  }))
+                }
+                placeholder="本分頁內沿用，不寫入本站儲存空間"
                 required
               />
+              <p className="credential-note">
+                端點、模型與供應商會保存在此瀏覽器；API 金鑰只保留在目前分頁，關閉分頁後清除。
+              </p>
 
               <label className="consent-row">
                 <input

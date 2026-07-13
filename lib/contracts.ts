@@ -7,7 +7,7 @@ const CaseRelationSchema = z
     citation_text: z.string().optional(),
     doc_type: z.string().optional(),
     jdate: z.string().optional(),
-    main_flag: z.string().optional(),
+    main_flag: z.string().nullable().optional(),
   })
   .passthrough();
 

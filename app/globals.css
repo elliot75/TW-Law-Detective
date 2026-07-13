@@ -227,6 +227,16 @@ textarea:focus,
   border: 1px solid #ecd58c;
 }
 
+.custom-http-warning {
+  margin: -8px 0 16px;
+}
+
+.credential-note {
+  margin: -8px 0 16px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
 .search-actions {
   margin-top: 20px;
   display: flex;
